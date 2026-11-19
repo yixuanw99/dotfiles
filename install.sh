@@ -4,13 +4,15 @@ set -euo pipefail
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASHRC="${HOME}/.bashrc"
 CLAUDE_DIR="${HOME}/.claude"
-SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+AGY_DIR="${HOME}/.gemini/antigravity-cli"
+LOCAL_BIN="${HOME}/.local/bin"
 
-mkdir -p "$CLAUDE_DIR"
+mkdir -p "$CLAUDE_DIR" "$AGY_DIR" "$LOCAL_BIN"
 touch "$BASHRC"
 
 ln -sfn "${DOTFILES_DIR}/.hc_wrapper.sh" "${HOME}/.hc_wrapper.sh"
 ln -sfn "${DOTFILES_DIR}/claude/statusline-command.sh" "${CLAUDE_DIR}/statusline-command.sh"
+ln -sfn "${DOTFILES_DIR}/agy/antigravity-statusline.sh" "${LOCAL_BIN}/antigravity-statusline.sh"
 
 # Ensure immediate bash history flush (survives OOM / SIGKILL) and hc wrapper loading.
 if ! grep -Fq 'history -a' "$BASHRC"; then
@@ -30,17 +32,26 @@ if ! grep -Fq '.hc_wrapper.sh' "$BASHRC"; then
 EOF
 fi
 
-# Merge portable statusLine setting into ~/.claude/settings.json without clobbering existing keys.
+merge_statusline_json() {
+    local target="$1"
+    local jq_expr="$2"
+    [ -f "$target" ] || printf '{}\n' > "$target"
+    local tmp_file
+    tmp_file="$(mktemp "${target}.tmp.XXXXXX")"
+    jq "$jq_expr" "$target" > "$tmp_file"
+    mv "$tmp_file" "$target"
+}
+
+# Merge statusLine settings without clobbering existing keys in each file.
 if command -v jq >/dev/null 2>&1; then
-    if [ ! -f "$SETTINGS_FILE" ]; then
-        printf '{}\n' > "$SETTINGS_FILE"
-    fi
-    tmp_file="$(mktemp "${SETTINGS_FILE}.tmp.XXXXXX")"
-    jq '.statusLine = {"type": "command", "command": "bash \"$HOME/.claude/statusline-command.sh\""}' \
-        "$SETTINGS_FILE" > "$tmp_file"
-    mv "$tmp_file" "$SETTINGS_FILE"
+    merge_statusline_json \
+        "${CLAUDE_DIR}/settings.json" \
+        '.statusLine = {"type": "command", "command": "bash \"$HOME/.claude/statusline-command.sh\""}'
+    merge_statusline_json \
+        "${AGY_DIR}/settings.json" \
+        '.statusLine = {"type": "command", "command": (env.HOME + "/.local/bin/antigravity-statusline.sh"), "enabled": true}'
 else
-    echo "Warning: jq not found; install jq for Claude statusLine and set statusLine manually in $SETTINGS_FILE" >&2
+    echo "Warning: jq not found; install jq for statusLine scripts and configure settings.json manually." >&2
 fi
 
 echo "Installed dotfiles from $DOTFILES_DIR"
