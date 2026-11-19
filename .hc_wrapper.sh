@@ -1,6 +1,12 @@
 # Interactive shell wrapper for hc: adds screen-like -S, -ls, -r
 # while keeping native hc behavior intact for everything else.
 
+# Keep rd182 on "default" to preserve existing sessions; isolate other hosts
+# sharing the same NFS $HOME by hostname.
+if [ -z "${HC_SESSION:-}" ] && [ "$(hostname -s)" != "rd182" ]; then
+    export HC_SESSION="$(hostname -s)"
+fi
+
 hc() {
     case "${1:-}" in
         -S)
@@ -57,12 +63,17 @@ _hc_ls_enhanced() {
 import json
 import os
 import subprocess
+import sys
 
 cmd = ["hc", "ls", "--json"]
 if os.environ.get("HC_WRAPPER_ALL") == "1":
     cmd.append("--all")
 
-ls_data = json.loads(subprocess.check_output(cmd))
+proc = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+if proc.returncode != 0:
+    sys.exit(proc.returncode)
+
+ls_data = json.loads(proc.stdout)
 terminals = ls_data.get("terminals", [])
 
 rows = []
