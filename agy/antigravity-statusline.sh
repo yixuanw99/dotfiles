@@ -6,6 +6,8 @@ mapfile -t _f < <(jq -r '
   def clean: tostring | gsub("[\r\n\t]+"; " ");
   def fmt_epoch_rem:
     (. - now) | if . > 0 then floor else empty end;
+  def fmt_pct:
+    ((1.0 - .) * 100) | round | tostring + "%";
 
   [
     (.workspace.current_dir // .cwd // ""),
@@ -14,27 +16,37 @@ mapfile -t _f < <(jq -r '
     (.plan_tier // ""),
     ((.context_window.used_percentage // 0) | floor),
     ((.context_window.context_window_size // 0) | floor),
-    ((.context_window.total_input_tokens // 0) | floor),
-    ((.context_window.total_output_tokens // 0) | floor),
     (.vcs.branch // ""),
     (.vcs.dirty // ""),
     (
       if (.quota? | type) == "object" and (.quota | length) > 0 then
-        (.quota | to_entries | map(select(.value != null))) as $entries |
-        if ($entries | length) == 1 then
-          ($entries[0].value.remaining_fraction) as $rf |
-          if $rf != null then "Quota: " + (((1.0 - $rf) * 100) | round | tostring) + "%" else "" end
-        elif ($entries | length) > 1 then
-          ($entries | map(
-            select(.value.remaining_fraction != null) |
-            "\(.key): \((((1.0 - .value.remaining_fraction) * 100) | round))%"
-          ) | join(" / "))
-        else "" end
+        (.quota | to_entries | map(select(.value != null and .value.remaining_fraction != null))) as $entries |
+        if ($entries | length) == 1 and ($entries[0].key | IN("gemini-5h", "gemini-weekly") | not) then
+          "Quota: " + ($entries[0].value.remaining_fraction | fmt_pct)
+        else
+          [
+            (["gemini-5h", "gemini-weekly"][] as $k |
+              ($entries[] | select(.key == $k)) | "\(.key): \(.value.remaining_fraction | fmt_pct)")
+          ] | join(" / ")
+        end
       elif .rate_limits? then
         [
           (if .rate_limits.five_hour.used_percentage? != null then "5h: " + (.rate_limits.five_hour.used_percentage | round | tostring) + "%" else empty end),
           (if .rate_limits.seven_day.used_percentage? != null then "7d: " + (.rate_limits.seven_day.used_percentage | round | tostring) + "%" else empty end)
         ] | join(" / ")
+      else "" end
+    ),
+    (
+      if (.quota? | type) == "object" and (.quota | length) > 0 then
+        (.quota | to_entries | map(select(.value != null and .value.remaining_fraction != null))) as $entries |
+        if ($entries | length) == 1 and ($entries[0].key | IN("gemini-5h", "gemini-weekly") | not) then
+          ""
+        else
+          [
+            $entries[] | select(.key | IN("gemini-5h", "gemini-weekly") | not) |
+            "\(.key): \(.value.remaining_fraction | fmt_pct)"
+          ] | join(" / ")
+        end
       else "" end
     ),
     (
@@ -55,19 +67,16 @@ effort="${_f[2]:-}"
 plan_tier="${_f[3]:-}"
 used_pct="${_f[4]:-0}"
 ctx_size="${_f[5]:-0}"
-in_tok="${_f[6]:-0}"
-out_tok="${_f[7]:-0}"
-git_branch="${_f[8]:-}"
-is_dirty="${_f[9]:-}"
-rate_part="${_f[10]:-}"
-reset_secs="${_f[11]:-}"
-cost_val="${_f[12]:-}"
-term_width="${_f[13]:-0}"
+git_branch="${_f[6]:-}"
+is_dirty="${_f[7]:-}"
+primary_rate="${_f[8]:-}"
+other_rate="${_f[9]:-}"
+reset_secs="${_f[10]:-}"
+cost_val="${_f[11]:-}"
+term_width="${_f[12]:-0}"
 
 [[ "$used_pct" =~ ^[0-9]+$ ]] || used_pct=0
 [[ "$ctx_size" =~ ^[0-9]+$ ]] || ctx_size=0
-[[ "$in_tok" =~ ^[0-9]+$ ]] || in_tok=0
-[[ "$out_tok" =~ ^[0-9]+$ ]] || out_tok=0
 [[ "$term_width" =~ ^[0-9]+$ ]] || term_width=0
 (( used_pct > 100 )) && used_pct=100
 
@@ -196,10 +205,6 @@ if (( ctx_size > 0 )); then
   used_tok=$(( used_pct * ctx_size / 100 ))
   ctx_detail="${used_pct}% ($(fmt_tok "$used_tok")/$(fmt_tok "$ctx_size"))"
 fi
-io_part=""
-if (( in_tok > 0 || out_tok > 0 )); then
-  io_part="in:$(fmt_tok "$in_tok") out:$(fmt_tok "$out_tok")"
-fi
 
 # Reset countdown & cost
 reset_part=""
@@ -230,23 +235,14 @@ line1="${line1}${GREEN}${user}@${host}${R}:${BLUE}${dir}${R}"
 [ -n "$model_display" ] && line1="${line1} | ${ORANGE}[${model_display}]${R}"
 [ -n "$plan_tier" ] && line1="${line1} | ${CYAN}[${plan_tier}]${R}"
 
-# Line 2: always keep the visual progress bar + context tokens (+ cost)
+# Line 2: visual progress bar + context tokens + gemini-5h/weekly + reset + cost
 line2="${BAR} ${ctx_detail}"
-[ -n "$io_part" ] && line2="${line2} | ${io_part}"
+[ -n "$primary_rate" ] && line2="${line2} | ${primary_rate}"
+[ -n "$reset_part" ] && line2="${line2} | ${reset_part}"
 [ -n "$cost_part" ] && line2="${line2} | ${cost_part}"
-
-# Line 3: quota / rate limits + reset countdown (printed only when available)
-line3=""
-if [ -n "$rate_part" ] && [ -n "$reset_part" ]; then
-  line3="${rate_part} | ${reset_part}"
-elif [ -n "$rate_part" ]; then
-  line3="${rate_part}"
-elif [ -n "$reset_part" ]; then
-  line3="${reset_part}"
-fi
 
 printf '%b\n' "$line1"
 echo "$line2"
-if [ -n "$line3" ]; then
-  echo "$line3"
+if [ -n "$other_rate" ]; then
+  echo "$other_rate"
 fi
