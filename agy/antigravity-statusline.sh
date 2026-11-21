@@ -247,4 +247,6 @@ fi
 
 printf '%b\n' "$line1"
 echo "$line2"
-[ -n "$line3" ] && echo "$line3"
+if [ -n "$line3" ]; then
+  echo "$line3"
+fi
