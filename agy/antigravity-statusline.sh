@@ -203,12 +203,10 @@ fi
 
 # Reset countdown & cost
 reset_part=""
-reset_compact=""
 if [[ "$reset_secs" =~ ^[0-9]+$ ]] && (( reset_secs > 0 )); then
   hrs=$(( reset_secs / 3600 ))
   mins=$(( (reset_secs % 3600) / 60 ))
   reset_part="Reset: ${hrs} hr ${mins} min"
-  reset_compact="Reset: ${hrs}h${mins}m"
 fi
 
 cost_part=""
@@ -232,30 +230,21 @@ line1="${line1}${GREEN}${user}@${host}${R}:${BLUE}${dir}${R}"
 [ -n "$model_display" ] && line1="${line1} | ${ORANGE}[${model_display}]${R}"
 [ -n "$plan_tier" ] && line1="${line1} | ${CYAN}[${plan_tier}]${R}"
 
-# Line 2: fit cleanly within terminal_width when narrow
-build_line2() {
-  local bar="$1"
-  local rst="$2"
-  local l=""
-  if [ -n "$bar" ]; then
-    l="${bar} ${ctx_detail}"
-  else
-    l="ctx:${ctx_detail}"
-  fi
-  [ -n "$io_part" ] && l="${l} | ${io_part}"
-  [ -n "$rate_part" ] && l="${l} | ${rate_part}"
-  [ -n "$rst" ] && l="${l} | ${rst}"
-  [ -n "$cost_part" ] && l="${l} | ${cost_part}"
-  printf '%s' "$l"
-}
+# Line 2: always keep the visual progress bar + context tokens (+ cost)
+line2="${BAR} ${ctx_detail}"
+[ -n "$io_part" ] && line2="${line2} | ${io_part}"
+[ -n "$cost_part" ] && line2="${line2} | ${cost_part}"
 
-line2=$(build_line2 "$BAR" "$reset_part")
-if (( term_width > 0 && ${#line2} > term_width )); then
-  line2=$(build_line2 "$BAR" "$reset_compact")
-  if (( ${#line2} > term_width )); then
-    line2=$(build_line2 "" "$reset_compact")
-  fi
+# Line 3: quota / rate limits + reset countdown (printed only when available)
+line3=""
+if [ -n "$rate_part" ] && [ -n "$reset_part" ]; then
+  line3="${rate_part} | ${reset_part}"
+elif [ -n "$rate_part" ]; then
+  line3="${rate_part}"
+elif [ -n "$reset_part" ]; then
+  line3="${reset_part}"
 fi
 
 printf '%b\n' "$line1"
 echo "$line2"
+[ -n "$line3" ] && echo "$line3"
