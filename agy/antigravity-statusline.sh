@@ -185,18 +185,39 @@ if (( term_width > 0 )); then
   dir=$(shorten_dir "$dir" "$avail_dir")
 fi
 
-# Build progress bar (10 chars)
+# Colors
+ESC=$'\033'
+WHITE="${ESC}[37m"
+GREEN="${ESC}[32m"
+BLUE="${ESC}[34m"
+ORANGE="${ESC}[38;5;208m"
+CYAN="${ESC}[36m"
+RED="${ESC}[31m"
+R="${ESC}[0m"
+
+# Progress bar (10 cells). Both filled and empty cells are background-colored spaces:
+# no glyphs at all, so they cannot misalign or overflow the line height. (Block/shade
+# characters like ░ ▒ ▓ █ rendered taller than the line in some fonts and overlapped
+# the line above.)
 BAR_WIDTH=10
 FILLED=$(( used_pct * BAR_WIDTH / 100 ))
 EMPTY=$(( BAR_WIDTH - FILLED ))
+if (( used_pct >= 80 )); then
+  FILL_BG="${ESC}[48;5;203m"   # red warning
+  PCT_COLOR="$RED"
+else
+  FILL_BG="${ESC}[48;5;114m"   # soft green
+  PCT_COLOR=""
+fi
+EMPTY_BG="${ESC}[48;5;240m"    # dark gray
 BAR=""
 if (( FILLED > 0 )); then
   printf -v FILL "%${FILLED}s"
-  BAR="${FILL// /▓}"
+  BAR="${FILL_BG}${FILL}${R}"
 fi
 if (( EMPTY > 0 )); then
   printf -v PAD "%${EMPTY}s"
-  BAR="${BAR}${PAD// /░}"
+  BAR="${BAR}${EMPTY_BG}${PAD}${R}"
 fi
 
 # Context token details
@@ -205,6 +226,7 @@ if (( ctx_size > 0 )); then
   used_tok=$(( used_pct * ctx_size / 100 ))
   ctx_detail="${used_pct}% ($(fmt_tok "$used_tok")/$(fmt_tok "$ctx_size"))"
 fi
+[ -n "$PCT_COLOR" ] && ctx_detail="${PCT_COLOR}${ctx_detail}${R}"
 
 # Reset countdown & cost
 reset_part=""
@@ -218,14 +240,6 @@ cost_part=""
 if [ -n "$cost_val" ]; then
   cost_part=$(printf '$%.2f' "$cost_val" 2>/dev/null || true)
 fi
-
-# Colors
-WHITE='\033[37m'
-GREEN='\033[32m'
-BLUE='\033[34m'
-ORANGE='\033[38;5;208m'
-CYAN='\033[36m'
-R='\033[0m'
 
 # Line 1: (env)user@host:dir | ⎇ branch | [Model] | [Tier]
 line1=""
@@ -242,7 +256,7 @@ line2="${BAR} ${ctx_detail}"
 [ -n "$cost_part" ] && line2="${line2} | ${cost_part}"
 
 printf '%b\n' "$line1"
-echo "$line2"
+printf '%b\n' "$line2"
 if [ -n "$other_rate" ]; then
   echo "$other_rate"
 fi
